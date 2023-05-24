@@ -62,6 +62,9 @@ export class ServerlessClusterTestStack extends cdk.Stack {
         },
         vpc,
         securityGroups: [securityGroup],
+        bundling: {
+          nodeModules: ['knex', 'pg'],
+        },
       }
     );
 

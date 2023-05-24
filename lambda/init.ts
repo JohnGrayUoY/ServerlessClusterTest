@@ -1,9 +1,9 @@
 import { env } from 'process';
-import * as pg from 'pg';
 import {
   GetSecretValueCommand,
   SecretsManagerClient,
 } from '@aws-sdk/client-secrets-manager';
+import knex from 'knex';
 
 export const handler = async () => {
   const secretsManagerClient = new SecretsManagerClient({});
@@ -27,17 +27,43 @@ export const handler = async () => {
     };
   }
 
-  const pgClient = new pg.Client({
-    host: secret.host,
-    port: secret.port,
-    database: secret.dbname,
-    user: secret.username,
-    password: secret.password,
+  const knexClient = knex({
+    client: 'pg',
+    connection: {
+      host: secret.host,
+      port: secret.port,
+      database: secret.dbname,
+      user: secret.username,
+      password: secret.password,
+    },
   });
 
-  await pgClient.connect();
+  try {
+    await knexClient.schema.createTable('entities', (table) => {
+      table.increments('id');
+      table.string('name');
+    });
+  } catch (error) {
+    console.log(`Error creating table: ${JSON.stringify(error as Error)}`);
+  }
 
-  console.log('DB Client Connected');
+  console.log('Knex created table');
+
+  try {
+    await knexClient('entities').insert({ id: '1', name: 'Number 1' });
+  } catch (error) {
+    console.log(`Error inserting: ${JSON.stringify(error as Error)}`);
+  }
+
+  try {
+    const selectOutput = await knexClient('entities').select({
+      id: 'id',
+      name: 'name',
+    });
+    console.log(`Selected: ${JSON.stringify(selectOutput)}`);
+  } catch (error) {
+    console.log(`Error selecting: ${JSON.stringify(error as Error)}`);
+  }
 
   return {
     statusCode: 200,
