@@ -39,6 +39,9 @@ export class ServerlessClusterTestStack extends cdk.Stack {
       }
     );
 
+    // Adding this to DatabaseCluster class is WIP.
+    // This sets the scaling of the cluster as currently unavailable.
+    // https://github.com/aws/aws-cdk/issues/20197
     cdk.Aspects.of(serverlessCluster).add({
       visit(node) {
         if (node instanceof rds.CfnDBCluster) {
