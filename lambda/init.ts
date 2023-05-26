@@ -4,6 +4,8 @@ import {
   SecretsManagerClient,
 } from '@aws-sdk/client-secrets-manager';
 import knex from 'knex';
+import { randomUUID } from 'crypto';
+import * as pg from 'pg';
 
 export const handler = async () => {
   const secretsManagerClient = new SecretsManagerClient({});
@@ -27,6 +29,22 @@ export const handler = async () => {
     };
   }
 
+  const pgClient = new pg.Client({
+    host: secret.host,
+    port: secret.port,
+    database: secret.dbname,
+    user: secret.username,
+    password: secret.password,
+  });
+
+  await pgClient.connect();
+
+  try {
+    await pgClient.query('CREATE EXTENSION ltree');
+  } catch (error) {
+    // Do nothing. Just ensure this module is loaded.
+  }
+
   const knexClient = knex({
     client: 'pg',
     connection: {
@@ -38,31 +56,54 @@ export const handler = async () => {
     },
   });
 
+  const tableName = randomUUID();
+
   try {
-    await knexClient.schema.createTable('entities', (table) => {
+    await knexClient.schema.createTable(tableName, (table) => {
       table.increments('id');
       table.string('name');
+      table.specificType('testLTree', 'ltree');
     });
   } catch (error) {
-    console.log(`Error creating table: ${JSON.stringify(error as Error)}`);
+    return {
+      statusCode: 500,
+      body: `Error creating table: ${JSON.stringify(error as Error)}`,
+    };
   }
 
   console.log('Knex created table');
 
+  const insertObjectId = Math.floor(Math.random() * 1000);
+
+  console.log('Insert Id: ' + insertObjectId);
+
+  const insertObject = {
+    id: insertObjectId,
+    name: `Name of ${insertObjectId}`,
+    testLTree: insertObjectId.toString(),
+  };
+
   try {
-    await knexClient('entities').insert({ id: '1', name: 'Number 1' });
+    await knexClient(tableName).insert(insertObject);
   } catch (error) {
-    console.log(`Error inserting: ${JSON.stringify(error as Error)}`);
+    return {
+      statusCode: 500,
+      body: `Error inserting: ${JSON.stringify(error as Error)}`,
+    };
   }
 
   try {
-    const selectOutput = await knexClient('entities').select({
+    const selectOutput = await knexClient(tableName).select({
       id: 'id',
       name: 'name',
+      testLTree: 'testLTree',
     });
     console.log(`Selected: ${JSON.stringify(selectOutput)}`);
   } catch (error) {
-    console.log(`Error selecting: ${JSON.stringify(error as Error)}`);
+    return {
+      statusCode: 500,
+      body: `Error selecting: ${JSON.stringify(error as Error)}`,
+    };
   }
 
   return {

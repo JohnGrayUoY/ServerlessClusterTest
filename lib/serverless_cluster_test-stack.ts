@@ -4,6 +4,13 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { Port, SecurityGroup, Vpc } from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
+import { LambdaIntegration, RestApi } from 'aws-cdk-lib/aws-apigateway';
+import { HttpMethod } from 'aws-cdk-lib/aws-events';
+import {
+  SecretRotation,
+  SecretRotationApplication,
+} from 'aws-cdk-lib/aws-secretsmanager';
+import { version } from 'os';
 
 export class ServerlessClusterTestStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -22,6 +29,19 @@ export class ServerlessClusterTestStack extends cdk.Stack {
       }
     );
 
+    const parameterGroup = new rds.ParameterGroup(
+      this,
+      'TestServerlessParameterGroup',
+      {
+        engine: rds.DatabaseClusterEngine.auroraPostgres({
+          version: rds.AuroraPostgresEngineVersion.VER_14_5,
+        }),
+        parameters: {
+          shared_preload_libraries: 'pg_stat_statements, pg_tle',
+        },
+      }
+    );
+
     const serverlessCluster = new rds.DatabaseCluster(
       this,
       'Test Serverless Cluster',
@@ -33,11 +53,19 @@ export class ServerlessClusterTestStack extends cdk.Stack {
           vpc,
           instanceType: 'serverless' as any,
           securityGroups: [securityGroup],
+          parameterGroup,
         },
         defaultDatabaseName: dbName,
         credentials: { username: dbUsername },
       }
     );
+
+    new SecretRotation(this, 'TestClusterSecretRotation', {
+      application: SecretRotationApplication.POSTGRES_ROTATION_SINGLE_USER,
+      secret: serverlessCluster.secret!,
+      target: serverlessCluster,
+      vpc: vpc,
+    });
 
     // Adding this to DatabaseCluster class is WIP.
     // This sets the scaling of the cluster as currently unavailable.
@@ -46,7 +74,7 @@ export class ServerlessClusterTestStack extends cdk.Stack {
       visit(node) {
         if (node instanceof rds.CfnDBCluster) {
           node.serverlessV2ScalingConfiguration = {
-            minCapacity: 1,
+            minCapacity: 0.5,
             maxCapacity: 1,
           };
         }
@@ -77,5 +105,10 @@ export class ServerlessClusterTestStack extends cdk.Stack {
       securityGroup,
       Port.tcp(serverlessCluster.clusterEndpoint.port)
     );
+
+    const api = new RestApi(this, 'TestClusterRestApi');
+
+    const resource = api.root.addResource('init');
+    resource.addMethod(HttpMethod.GET, new LambdaIntegration(lambdaFn));
   }
 }
